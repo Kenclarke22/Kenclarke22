@@ -1,0 +1,11 @@
+{
+  "target_weights": {
+    "AAPL": 0.02,
+    "MSFT": 0.02
+  },
+  "rebalance_threshold": 0.001,
+  "market_quotes": {
+    "AAPL": 190.0,
+    "MSFT": 420.0
+  }
+}
