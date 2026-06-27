@@ -89,3 +89,39 @@ def test_master_agent_cycle_with_mock_server():
 
     assert result.success
     assert len(result.submitted) >= 1
+
+
+def test_submit_order_does_not_retry_after_transport_error():
+    import httpx
+
+    from trading_agent.execution.client import ExecutionClient, ExecutionClientError
+
+    settings = Settings(execution_base_url="http://testserver", trading_mode="live")
+
+    class _FailingClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def request(self, method: str, path: str, **kwargs):
+            self.calls.append((method, path))
+            raise httpx.ReadTimeout("timed out after order submission")
+
+        def close(self) -> None:
+            return None
+
+    transport = _FailingClient()
+    client = ExecutionClient(settings=settings)
+    client._client = transport  # type: ignore[assignment]
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        quantity=1,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+
+    with pytest.raises(ExecutionClientError):
+        client.submit_order(intent)
+
+    assert transport.calls == [("POST", "/api/orders")]
