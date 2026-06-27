@@ -95,7 +95,14 @@ class OrderIntent(BaseModel):
         )
 
     def estimated_notional(self, mark_price: float | None = None) -> float:
-        price = mark_price or self.limit_price or 0.0
+        if mark_price is not None:
+            price = mark_price
+        elif self.limit_price is not None:
+            price = self.limit_price
+        elif self.stop_price is not None:
+            price = self.stop_price
+        else:
+            price = 0.0
         multiplier = 100 if self.asset_class == AssetClass.OPTION else 1
         return abs(self.quantity) * price * multiplier
 

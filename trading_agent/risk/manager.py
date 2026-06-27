@@ -62,14 +62,20 @@ class RiskManager:
                 return RiskDecision(False, "Max open positions reached")
 
         notional = intent.estimated_notional(mark_price)
-        if mark_price and notional > self.settings.max_order_notional_usd:
+        if notional <= 0:
+            return RiskDecision(
+                False,
+                "Order notional cannot be estimated without a positive mark, limit, or stop price",
+            )
+
+        if notional > self.settings.max_order_notional_usd:
             return RiskDecision(
                 False,
                 f"Order notional ${notional:,.2f} exceeds max ${self.settings.max_order_notional_usd:,.2f}",
             )
 
         if account and account.buying_power is not None and intent.side.value == "buy":
-            if notional and notional > account.buying_power:
+            if notional > account.buying_power:
                 return RiskDecision(
                     False,
                     f"Insufficient buying power (${account.buying_power:,.2f}) for notional ${notional:,.2f}",

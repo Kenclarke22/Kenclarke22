@@ -115,7 +115,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             intent,
             account=account,
             positions=positions,
-            mark_price=args.limit_price,
+            mark_price=args.mark_price if args.mark_price is not None else args.limit_price,
         )
         if not decision.approved:
             console.print(f"[red]Rejected: {decision.reason}[/red]")
@@ -170,6 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--quantity", type=float, required=True)
     submit.add_argument("--order-type", choices=["market", "limit"], default="market")
     submit.add_argument("--limit-price", type=float)
+    submit.add_argument("--mark-price", type=float, help="Current market price used only for risk checks")
     submit.add_argument("--underlying")
     submit.add_argument("--expiry")
     submit.add_argument("--strike", type=float)
