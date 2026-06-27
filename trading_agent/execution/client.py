@@ -95,6 +95,7 @@ class ExecutionClient:
         json_body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
     ) -> Any:
+        method_upper = method.upper()
         last_error: ExecutionClientError | None = None
         for path in paths:
             try:
@@ -112,6 +113,8 @@ class ExecutionClient:
                 return response.json()
             except httpx.HTTPError as exc:
                 last_error = ExecutionClientError(f"HTTP error on {method} {path}: {exc}")
+                if method_upper not in {"GET", "HEAD", "OPTIONS"}:
+                    raise last_error
                 continue
         if last_error:
             raise last_error
