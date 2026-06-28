@@ -94,6 +94,8 @@ class MasterTradingAgent:
             )
             if decision.approved:
                 to_submit = decision.adjusted_intent or intent
+                # Reserve the daily slot before evaluating later intents in this cycle.
+                self.risk.record_submission_attempt()
                 result.approved.append(to_submit)
             else:
                 result.rejected.append((intent, decision.reason))
@@ -101,7 +103,6 @@ class MasterTradingAgent:
         for intent in result.approved:
             try:
                 response = self.execution.submit_order(intent)
-                self.risk.record_submitted_order()
                 result.submitted.append(response)
                 logger.info(
                     "Order %s %s status=%s",

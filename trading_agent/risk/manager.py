@@ -27,9 +27,12 @@ class RiskManager:
             self._orders_today = 0
             self._order_date = today
 
-    def record_submitted_order(self) -> None:
+    def record_submission_attempt(self) -> None:
         self.reset_daily_counters_if_needed()
         self._orders_today += 1
+
+    def record_submitted_order(self) -> None:
+        self.record_submission_attempt()
 
     def evaluate(
         self,

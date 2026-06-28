@@ -9,9 +9,12 @@ from trading_agent.models.orders import (
     OptionDetails,
     OptionRight,
     OrderIntent,
+    OrderResponse,
     OrderSide,
+    OrderStatus,
     OrderType,
 )
+from trading_agent.models.portfolio import AccountSnapshot
 from trading_agent.risk.manager import RiskManager
 
 
@@ -106,6 +109,84 @@ def test_master_agent_cycle_with_mock_server():
 
     assert result.success
     assert len(result.submitted) >= 1
+
+
+def test_master_agent_reserves_daily_slots_during_cycle(monkeypatch):
+    from trading_agent.agent import orchestrator
+
+    settings = Settings(
+        execution_base_url="http://testserver",
+        trading_mode="live",
+        max_daily_orders=1,
+        max_order_notional_usd=10_000,
+    )
+    intents = [
+        OrderIntent(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            side=OrderSide.BUY,
+            quantity=1,
+            order_type=OrderType.LIMIT,
+            limit_price=100.0,
+        ),
+        OrderIntent(
+            symbol="MSFT",
+            asset_class=AssetClass.STOCK,
+            side=OrderSide.BUY,
+            quantity=1,
+            order_type=OrderType.LIMIT,
+            limit_price=100.0,
+        ),
+    ]
+
+    class _TwoOrderStrategy:
+        name = "two_order"
+
+        def generate_intents(self, ctx):
+            return intents
+
+    class _Execution:
+        def __init__(self) -> None:
+            self.submitted: list[OrderIntent] = []
+
+        def health(self):
+            return {"status": "ok"}
+
+        def get_account(self):
+            return AccountSnapshot(equity=100_000, buying_power=100_000)
+
+        def get_positions(self):
+            return []
+
+        def submit_order(self, intent: OrderIntent):
+            self.submitted.append(intent)
+            return OrderResponse(
+                id=f"order-{len(self.submitted)}",
+                status=OrderStatus.SUBMITTED,
+                symbol=intent.symbol,
+                asset_class=intent.asset_class,
+                side=intent.side,
+                quantity=intent.quantity,
+            )
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(orchestrator, "get_registered_strategies", lambda names: [_TwoOrderStrategy()])
+    execution = _Execution()
+    agent = MasterTradingAgent(
+        settings=settings,
+        execution=execution,  # type: ignore[arg-type]
+        risk=RiskManager(settings=settings),
+    )
+
+    result = agent.run_cycle(strategy_metadata={"market_quotes": {"AAPL": 100.0, "MSFT": 100.0}})
+
+    assert len(result.proposed) == 2
+    assert len(result.submitted) == 1
+    assert len(result.rejected) == 1
+    assert result.rejected[0][1] == "Daily order limit reached"
+    assert execution.submitted == [intents[0]]
 
 
 def test_submit_order_does_not_retry_after_transport_error():
