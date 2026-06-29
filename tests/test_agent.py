@@ -14,7 +14,7 @@ from trading_agent.models.orders import (
     OrderStatus,
     OrderType,
 )
-from trading_agent.models.portfolio import AccountSnapshot
+from trading_agent.models.portfolio import AccountSnapshot, Position
 from trading_agent.risk.manager import RiskManager
 
 
@@ -49,6 +49,57 @@ def test_risk_rejects_order_without_price_reference():
 
     assert not decision.approved
     assert "notional" in decision.reason.lower()
+
+
+def test_risk_rejects_new_position_over_position_notional():
+    settings = Settings(
+        max_order_notional_usd=100_000,
+        max_position_notional_usd=1_000,
+        trading_mode="live",
+    )
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        quantity=20,
+        order_type=OrderType.LIMIT,
+        limit_price=100.0,
+    )
+
+    decision = risk.evaluate(intent, account=None, positions=[], mark_price=None)
+
+    assert not decision.approved
+    assert "position notional" in decision.reason.lower()
+
+
+def test_risk_allows_reducing_oversized_position():
+    settings = Settings(
+        max_order_notional_usd=100_000,
+        max_position_notional_usd=1_000,
+        trading_mode="live",
+    )
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.SELL,
+        quantity=1,
+        order_type=OrderType.LIMIT,
+        limit_price=100.0,
+    )
+    positions = [
+        Position(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            quantity=20,
+            market_value=2_000.0,
+        )
+    ]
+
+    decision = risk.evaluate(intent, account=None, positions=positions, mark_price=None)
+
+    assert decision.approved
 
 
 def test_option_intent_display_symbol():

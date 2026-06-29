@@ -84,10 +84,14 @@ class RiskManager:
                     f"Insufficient buying power (${account.buying_power:,.2f}) for notional ${notional:,.2f}",
                 )
 
-        for position in positions:
-            if position.symbol != intent.symbol:
-                continue
-            current_value = abs(position.market_value or 0)
+        matching_position = next((p for p in positions if p.symbol == intent.symbol), None)
+        current_quantity = matching_position.quantity if matching_position else 0.0
+        current_value = abs(matching_position.market_value or 0.0) if matching_position else 0.0
+        increases_exposure = (
+            (intent.side.value == "buy" and current_quantity >= 0)
+            or (intent.side.value == "sell" and current_quantity <= 0)
+        )
+        if increases_exposure:
             projected = current_value + notional
             if projected > self.settings.max_position_notional_usd:
                 return RiskDecision(
