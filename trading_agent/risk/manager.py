@@ -87,6 +87,15 @@ class RiskManager:
         matching_position = next((p for p in positions if p.symbol == intent.symbol), None)
         current_quantity = matching_position.quantity if matching_position else 0.0
         current_value = abs(matching_position.market_value or 0.0) if matching_position else 0.0
+        reduces_exposure = (
+            (intent.side.value == "sell" and current_quantity > 0)
+            or (intent.side.value == "buy" and current_quantity < 0)
+        )
+        if reduces_exposure and intent.quantity > abs(current_quantity):
+            return RiskDecision(
+                False,
+                "Order quantity would cross the current position through flat",
+            )
         increases_exposure = (
             (intent.side.value == "buy" and current_quantity >= 0)
             or (intent.side.value == "sell" and current_quantity <= 0)

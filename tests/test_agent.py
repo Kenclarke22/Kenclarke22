@@ -102,6 +102,66 @@ def test_risk_allows_reducing_oversized_position():
     assert decision.approved
 
 
+def test_risk_rejects_sell_that_crosses_long_position():
+    settings = Settings(
+        max_order_notional_usd=100_000,
+        max_position_notional_usd=100_000,
+        trading_mode="live",
+    )
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.SELL,
+        quantity=26,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+    positions = [
+        Position(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            quantity=10,
+            market_value=1_900.0,
+        )
+    ]
+
+    decision = risk.evaluate(intent, account=None, positions=positions, mark_price=None)
+
+    assert not decision.approved
+    assert "through flat" in decision.reason
+
+
+def test_risk_rejects_buy_that_crosses_short_position():
+    settings = Settings(
+        max_order_notional_usd=100_000,
+        max_position_notional_usd=100_000,
+        trading_mode="live",
+    )
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        quantity=15,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+    positions = [
+        Position(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            quantity=-10,
+            market_value=-1_900.0,
+        )
+    ]
+
+    decision = risk.evaluate(intent, account=None, positions=positions, mark_price=None)
+
+    assert not decision.approved
+    assert "through flat" in decision.reason
+
+
 def test_option_intent_display_symbol():
     intent = OrderIntent(
         symbol="AAPL",
