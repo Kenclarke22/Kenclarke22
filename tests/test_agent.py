@@ -300,6 +300,199 @@ def test_master_agent_reserves_daily_slots_during_cycle(monkeypatch):
     assert execution.submitted == [intents[0]]
 
 
+def test_master_agent_reserves_buying_power_during_cycle(monkeypatch):
+    settings = Settings(
+        execution_base_url="http://testserver",
+        trading_mode="live",
+        max_order_notional_usd=10_000,
+        max_position_notional_usd=100_000,
+    )
+    intents = [
+        OrderIntent(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            side=OrderSide.BUY,
+            quantity=6,
+            order_type=OrderType.LIMIT,
+            limit_price=100.0,
+        ),
+        OrderIntent(
+            symbol="MSFT",
+            asset_class=AssetClass.STOCK,
+            side=OrderSide.BUY,
+            quantity=6,
+            order_type=OrderType.LIMIT,
+            limit_price=100.0,
+        ),
+    ]
+
+    result, execution = _run_cycle_with_intents(
+        monkeypatch,
+        settings=settings,
+        intents=intents,
+        account=AccountSnapshot(equity=10_000, buying_power=1_000),
+        positions=[],
+        market_quotes={"AAPL": 100.0, "MSFT": 100.0},
+    )
+
+    assert len(result.submitted) == 1
+    assert len(result.rejected) == 1
+    assert "Insufficient buying power" in result.rejected[0][1]
+    assert execution.submitted == [intents[0]]
+
+
+def test_master_agent_reserves_new_positions_during_cycle(monkeypatch):
+    settings = Settings(
+        execution_base_url="http://testserver",
+        trading_mode="live",
+        max_open_positions=2,
+        max_order_notional_usd=10_000,
+        max_position_notional_usd=100_000,
+    )
+    intents = [
+        OrderIntent(
+            symbol="MSFT",
+            asset_class=AssetClass.STOCK,
+            side=OrderSide.BUY,
+            quantity=1,
+            order_type=OrderType.LIMIT,
+            limit_price=100.0,
+        ),
+        OrderIntent(
+            symbol="GOOG",
+            asset_class=AssetClass.STOCK,
+            side=OrderSide.BUY,
+            quantity=1,
+            order_type=OrderType.LIMIT,
+            limit_price=100.0,
+        ),
+    ]
+
+    result, execution = _run_cycle_with_intents(
+        monkeypatch,
+        settings=settings,
+        intents=intents,
+        account=AccountSnapshot(equity=10_000, buying_power=10_000),
+        positions=[
+            Position(
+                symbol="AAPL",
+                asset_class=AssetClass.STOCK,
+                quantity=1,
+                market_value=100.0,
+            )
+        ],
+        market_quotes={"MSFT": 100.0, "GOOG": 100.0},
+    )
+
+    assert len(result.submitted) == 1
+    assert len(result.rejected) == 1
+    assert result.rejected[0][1] == "Max open positions reached"
+    assert execution.submitted == [intents[0]]
+
+
+def test_master_agent_reserves_position_notional_during_cycle(monkeypatch):
+    settings = Settings(
+        execution_base_url="http://testserver",
+        trading_mode="live",
+        max_order_notional_usd=10_000,
+        max_position_notional_usd=1_000,
+    )
+    intents = [
+        OrderIntent(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            side=OrderSide.BUY,
+            quantity=2,
+            order_type=OrderType.LIMIT,
+            limit_price=100.0,
+        ),
+        OrderIntent(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            side=OrderSide.BUY,
+            quantity=2,
+            order_type=OrderType.LIMIT,
+            limit_price=100.0,
+        ),
+    ]
+
+    result, execution = _run_cycle_with_intents(
+        monkeypatch,
+        settings=settings,
+        intents=intents,
+        account=AccountSnapshot(equity=10_000, buying_power=10_000),
+        positions=[
+            Position(
+                symbol="AAPL",
+                asset_class=AssetClass.STOCK,
+                quantity=8,
+                market_value=800.0,
+            )
+        ],
+        market_quotes={"AAPL": 100.0},
+    )
+
+    assert len(result.submitted) == 1
+    assert len(result.rejected) == 1
+    assert "Position notional" in result.rejected[0][1]
+    assert execution.submitted == [intents[0]]
+
+
+def _run_cycle_with_intents(
+    monkeypatch,
+    *,
+    settings: Settings,
+    intents: list[OrderIntent],
+    account: AccountSnapshot,
+    positions: list[Position],
+    market_quotes: dict[str, float],
+):
+    from trading_agent.agent import orchestrator
+
+    class _StaticStrategy:
+        name = "static"
+
+        def generate_intents(self, ctx):
+            return intents
+
+    class _Execution:
+        def __init__(self) -> None:
+            self.submitted: list[OrderIntent] = []
+
+        def health(self):
+            return {"status": "ok"}
+
+        def get_account(self):
+            return account
+
+        def get_positions(self):
+            return positions
+
+        def submit_order(self, intent: OrderIntent):
+            self.submitted.append(intent)
+            return OrderResponse(
+                id=f"order-{len(self.submitted)}",
+                status=OrderStatus.SUBMITTED,
+                symbol=intent.symbol,
+                asset_class=intent.asset_class,
+                side=intent.side,
+                quantity=intent.quantity,
+            )
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(orchestrator, "get_registered_strategies", lambda names: [_StaticStrategy()])
+    execution = _Execution()
+    agent = MasterTradingAgent(
+        settings=settings,
+        execution=execution,  # type: ignore[arg-type]
+        risk=RiskManager(settings=settings),
+    )
+
+    return agent.run_cycle(strategy_metadata={"market_quotes": market_quotes}), execution
+
+
 def test_submit_order_does_not_retry_after_transport_error():
     import httpx
 

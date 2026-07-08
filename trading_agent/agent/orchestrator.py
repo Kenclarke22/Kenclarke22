@@ -82,20 +82,28 @@ class MasterTradingAgent:
                 logger.exception("Strategy %s failed", strategy.name)
                 result.errors.append(f"Strategy {strategy.name}: {exc}")
 
+        reserved_account = result.account
+        reserved_positions = list(result.positions)
         for intent in result.proposed:
             mark = ctx.market_quotes.get(intent.symbol)
             if intent.option_details:
                 mark = ctx.market_quotes.get(intent.option_details.underlying, mark)
             decision = self.risk.evaluate(
                 intent,
-                account=result.account,
-                positions=result.positions,
+                account=reserved_account,
+                positions=reserved_positions,
                 mark_price=mark,
             )
             if decision.approved:
                 to_submit = decision.adjusted_intent or intent
                 # Reserve the daily slot before evaluating later intents in this cycle.
                 self.risk.record_submission_attempt()
+                reserved_account, reserved_positions = self._reserve_cycle_risk(
+                    to_submit,
+                    mark_price=mark,
+                    account=reserved_account,
+                    positions=reserved_positions,
+                )
                 result.approved.append(to_submit)
             else:
                 result.rejected.append((intent, decision.reason))
@@ -115,6 +123,69 @@ class MasterTradingAgent:
 
         result.finished_at = datetime.now(timezone.utc)
         return result
+
+    def _reserve_cycle_risk(
+        self,
+        intent: OrderIntent,
+        *,
+        mark_price: float | None,
+        account: AccountSnapshot | None,
+        positions: list[Position],
+    ) -> tuple[AccountSnapshot | None, list[Position]]:
+        notional = intent.estimated_notional(mark_price)
+        reserved_account = account
+        if account and account.buying_power is not None and intent.side.value == "buy":
+            reserved_account = account.model_copy(
+                update={"buying_power": max(account.buying_power - notional, 0.0)}
+            )
+
+        reserved_positions = list(positions)
+        for index, position in enumerate(reserved_positions):
+            if position.symbol == intent.symbol:
+                reserved_positions[index] = self._reserve_position(position, intent, notional)
+                break
+        else:
+            reserved_positions.append(
+                Position(
+                    symbol=intent.symbol,
+                    asset_class=intent.asset_class,
+                    quantity=intent.quantity if intent.side.value == "buy" else -intent.quantity,
+                    market_value=notional if intent.side.value == "buy" else -notional,
+                    option_details=intent.option_details,
+                )
+            )
+
+        return reserved_account, reserved_positions
+
+    def _reserve_position(
+        self,
+        position: Position,
+        intent: OrderIntent,
+        notional: float,
+    ) -> Position:
+        current_quantity = position.quantity
+        quantity_delta = intent.quantity if intent.side.value == "buy" else -intent.quantity
+        projected_quantity = current_quantity + quantity_delta
+        current_abs_value = abs(position.market_value or 0.0)
+        increases_exposure = (
+            (intent.side.value == "buy" and current_quantity >= 0)
+            or (intent.side.value == "sell" and current_quantity <= 0)
+        )
+        projected_abs_value = (
+            current_abs_value + notional if increases_exposure else max(current_abs_value - notional, 0.0)
+        )
+        if projected_quantity < 0:
+            projected_market_value = -projected_abs_value
+        elif projected_quantity > 0:
+            projected_market_value = projected_abs_value
+        else:
+            projected_market_value = 0.0
+        return position.model_copy(
+            update={
+                "quantity": projected_quantity,
+                "market_value": projected_market_value,
+            }
+        )
 
     def close(self) -> None:
         self.execution.close()
