@@ -68,8 +68,10 @@ class RiskManager:
                 f"Order notional ${notional:,.2f} exceeds max ${self.settings.max_order_notional_usd:,.2f}",
             )
 
-        if account and account.buying_power is not None and intent.side.value == "buy":
-            if notional and notional > account.buying_power:
+        if account and intent.side.value == "buy":
+            if self.settings.trading_mode == "live" and account.buying_power is None:
+                return RiskDecision(False, "Buying power unavailable for live buy order")
+            if account.buying_power is not None and notional and notional > account.buying_power:
                 return RiskDecision(
                     False,
                     f"Insufficient buying power (${account.buying_power:,.2f}) for notional ${notional:,.2f}",

@@ -12,6 +12,7 @@ from trading_agent.models.orders import (
     OrderSide,
     OrderType,
 )
+from trading_agent.models.portfolio import AccountSnapshot
 from trading_agent.risk.manager import RiskManager
 
 
@@ -29,6 +30,25 @@ def test_risk_rejects_over_notional():
     decision = risk.evaluate(intent, account=None, positions=[], mark_price=190.0)
     assert not decision.approved
     assert "notional" in decision.reason.lower()
+
+
+def test_live_buy_requires_buying_power():
+    settings = Settings(max_order_notional_usd=10_000, trading_mode="live")
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        quantity=1,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+    account = AccountSnapshot(equity=100_000, buying_power=None)
+
+    decision = risk.evaluate(intent, account=account, positions=[], mark_price=190.0)
+
+    assert not decision.approved
+    assert "buying power unavailable" in decision.reason.lower()
 
 
 def test_option_intent_display_symbol():
