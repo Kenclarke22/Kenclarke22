@@ -12,7 +12,10 @@ from trading_agent.models.orders import (
     OrderSide,
     OrderType,
 )
+from trading_agent.models.portfolio import AccountSnapshot, Position
 from trading_agent.risk.manager import RiskManager
+from trading_agent.strategies.base import StrategyContext
+from trading_agent.strategies.rebalance import RebalanceStrategy
 
 
 def test_risk_rejects_over_notional():
@@ -48,6 +51,25 @@ def test_option_intent_display_symbol():
     )
     assert "AAPL" in intent.display_symbol
     assert "200C" in intent.display_symbol
+
+
+def test_rebalance_uses_quantity_when_market_value_missing():
+    strategy = RebalanceStrategy()
+    ctx = StrategyContext(
+        account=AccountSnapshot(equity=10_000),
+        positions=[
+            Position(
+                symbol="AAPL",
+                asset_class=AssetClass.STOCK,
+                quantity=50,
+                market_value=None,
+            )
+        ],
+        market_quotes={"AAPL": 100.0},
+        metadata={"target_weights": {"AAPL": 0.5}, "rebalance_threshold": 0.001},
+    )
+
+    assert strategy.generate_intents(ctx) == []
 
 
 def test_master_agent_cycle_with_mock_server():

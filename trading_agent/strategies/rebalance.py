@@ -34,7 +34,12 @@ class RebalanceStrategy(Strategy):
 
             target_value = equity * target_weight
             current = position_map.get(symbol)
-            current_value = current.market_value if current and current.market_value else 0.0
+            current_value = 0.0
+            if current:
+                if current.market_value or current.quantity == 0:
+                    current_value = current.market_value or 0.0
+                else:
+                    current_value = current.quantity * mark
             drift = abs(target_value - current_value) / equity
 
             if drift < threshold:
