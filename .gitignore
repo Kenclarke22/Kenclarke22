@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.trading_agent_risk_state.json
+.trading_agent_risk_state.json.lock
+*.egg-info/
+dist/
+build/
