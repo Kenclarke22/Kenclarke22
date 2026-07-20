@@ -75,6 +75,9 @@ class OrderIntent(BaseModel):
     def validate_option_and_prices(self) -> "OrderIntent":
         if self.asset_class == AssetClass.OPTION and self.option_details is None:
             raise ValueError("option_details required when asset_class is option")
+        if self.asset_class == AssetClass.OPTION and self.option_details is not None:
+            if self.symbol != self.option_details.underlying:
+                raise ValueError("option symbol must match option_details underlying")
         if self.asset_class == AssetClass.STOCK and self.option_details is not None:
             raise ValueError("option_details must be omitted for stock orders")
         if self.order_type in {OrderType.LIMIT, OrderType.STOP_LIMIT} and self.limit_price is None:

@@ -50,6 +50,24 @@ def test_option_intent_display_symbol():
     assert "200C" in intent.display_symbol
 
 
+def test_option_intent_rejects_symbol_underlying_mismatch():
+    with pytest.raises(ValueError, match="symbol must match"):
+        OrderIntent(
+            symbol="TSLA",
+            asset_class=AssetClass.OPTION,
+            side=OrderSide.BUY,
+            quantity=1,
+            order_type=OrderType.LIMIT,
+            limit_price=5.5,
+            option_details=OptionDetails(
+                underlying="AAPL",
+                expiry=date(2026, 6, 20),
+                strike=200,
+                right=OptionRight.CALL,
+            ),
+        )
+
+
 def test_master_agent_cycle_with_mock_server():
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
