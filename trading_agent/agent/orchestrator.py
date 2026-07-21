@@ -22,6 +22,7 @@ class CycleResult:
     finished_at: datetime
     account: AccountSnapshot | None
     positions: list[Position]
+    open_orders: list[OrderResponse] = field(default_factory=list)
     proposed: list[OrderIntent] = field(default_factory=list)
     approved: list[OrderIntent] = field(default_factory=list)
     rejected: list[tuple[OrderIntent, str]] = field(default_factory=list)
@@ -61,6 +62,7 @@ class MasterTradingAgent:
         try:
             result.account = self.execution.get_account()
             result.positions = self.execution.get_positions()
+            result.open_orders = self.execution.get_orders()
         except ExecutionClientError as exc:
             result.errors.append(f"Failed to load portfolio state: {exc}")
             result.finished_at = datetime.now(timezone.utc)
@@ -69,6 +71,7 @@ class MasterTradingAgent:
         ctx = StrategyContext(
             account=result.account,
             positions=result.positions,
+            open_orders=result.open_orders,
             market_quotes=strategy_metadata.get("market_quotes", {}) if strategy_metadata else {},
             metadata=strategy_metadata or {},
         )

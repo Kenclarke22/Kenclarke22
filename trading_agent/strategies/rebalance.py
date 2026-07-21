@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
-from trading_agent.models.orders import AssetClass, OrderIntent, OrderSide, OrderType
+from typing import Any
+
+from trading_agent.models.orders import (
+    AssetClass,
+    OrderIntent,
+    OrderResponse,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+)
 from trading_agent.strategies.base import Strategy, StrategyContext
+
+
+OPEN_ORDER_STATUSES = {OrderStatus.PENDING, OrderStatus.SUBMITTED, OrderStatus.PARTIAL}
 
 
 class RebalanceStrategy(Strategy):
@@ -35,6 +47,7 @@ class RebalanceStrategy(Strategy):
             target_value = equity * target_weight
             current = position_map.get(symbol)
             current_value = current.market_value if current and current.market_value else 0.0
+            current_value += self._pending_stock_value(symbol, ctx.open_orders, mark)
             drift = abs(target_value - current_value) / equity
 
             if drift < threshold:
@@ -60,3 +73,50 @@ class RebalanceStrategy(Strategy):
             )
 
         return intents
+
+    def _pending_stock_value(
+        self,
+        symbol: str,
+        orders: list[OrderResponse],
+        fallback_price: float,
+    ) -> float:
+        pending_value = 0.0
+        for order in orders:
+            if order.status not in OPEN_ORDER_STATUSES:
+                continue
+            if order.asset_class != AssetClass.STOCK or order.symbol != symbol:
+                continue
+            outstanding_quantity = max(order.quantity - order.filled_quantity, 0.0)
+            if outstanding_quantity <= 0:
+                continue
+            price = self._first_positive_float(
+                order.raw,
+                "limit_price",
+                "price",
+                "order_price",
+                "stop_price",
+                fallback=fallback_price,
+            )
+            signed_value = outstanding_quantity * price
+            if order.side == OrderSide.SELL:
+                signed_value *= -1
+            pending_value += signed_value
+        return pending_value
+
+    def _first_positive_float(
+        self,
+        values: dict[str, Any],
+        *keys: str,
+        fallback: float,
+    ) -> float:
+        for key in keys:
+            raw_value = values.get(key)
+            if raw_value is None:
+                continue
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                return value
+        return fallback

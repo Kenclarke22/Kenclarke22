@@ -9,9 +9,12 @@ from trading_agent.models.orders import (
     OptionDetails,
     OptionRight,
     OrderIntent,
+    OrderResponse,
     OrderSide,
+    OrderStatus,
     OrderType,
 )
+from trading_agent.models.portfolio import AccountSnapshot
 from trading_agent.risk.manager import RiskManager
 
 
@@ -89,3 +92,60 @@ def test_master_agent_cycle_with_mock_server():
 
     assert result.success
     assert len(result.submitted) >= 1
+
+
+def test_rebalance_cycle_accounts_for_open_orders():
+    settings = Settings(
+        execution_base_url="http://testserver",
+        trading_mode="live",
+        max_order_notional_usd=50_000,
+    )
+
+    pending_order = OrderResponse(
+        id="existing-aapl-buy",
+        status=OrderStatus.SUBMITTED,
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        quantity=10,
+        filled_quantity=0,
+        raw={"limit_price": 100.0},
+    )
+
+    class _Execution:
+        def health(self):
+            return {"status": "ok"}
+
+        def get_account(self):
+            return AccountSnapshot(equity=10_000, buying_power=10_000)
+
+        def get_positions(self):
+            return []
+
+        def get_orders(self, status=None):
+            return [pending_order]
+
+        def submit_order(self, intent):
+            raise AssertionError("duplicate rebalance order should not be submitted")
+
+        def close(self) -> None:
+            return None
+
+    agent = MasterTradingAgent(
+        settings=settings,
+        execution=_Execution(),  # type: ignore[arg-type]
+        risk=RiskManager(settings=settings),
+    )
+    result = agent.run_cycle(
+        strategy_metadata={
+            "target_weights": {"AAPL": 0.1},
+            "market_quotes": {"AAPL": 100.0},
+            "rebalance_threshold": 0.001,
+        }
+    )
+    agent.close()
+
+    assert result.success
+    assert result.open_orders == [pending_order]
+    assert result.proposed == []
+    assert result.submitted == []
