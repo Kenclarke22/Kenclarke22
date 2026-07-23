@@ -16,6 +16,15 @@ from trading_agent.strategies.registry import get_registered_strategies
 logger = logging.getLogger(__name__)
 
 
+def _risk_mark_price(intent: OrderIntent, market_quotes: dict[str, float]) -> float | None:
+    if intent.option_details:
+        mark = None
+        if intent.symbol != intent.option_details.underlying:
+            mark = market_quotes.get(intent.symbol)
+        return mark if mark is not None else intent.limit_price
+    return market_quotes.get(intent.symbol)
+
+
 @dataclass
 class CycleResult:
     started_at: datetime
@@ -83,9 +92,12 @@ class MasterTradingAgent:
                 result.errors.append(f"Strategy {strategy.name}: {exc}")
 
         for intent in result.proposed:
-            mark = ctx.market_quotes.get(intent.symbol)
-            if intent.option_details:
-                mark = ctx.market_quotes.get(intent.option_details.underlying, mark)
+            mark = _risk_mark_price(intent, ctx.market_quotes)
+            if intent.option_details and mark is None:
+                result.rejected.append(
+                    (intent, "Option orders require an option premium quote or limit price")
+                )
+                continue
             decision = self.risk.evaluate(
                 intent,
                 account=result.account,
