@@ -10,8 +10,8 @@ from trading_agent.execution.client import ExecutionClient, ExecutionClientError
 from trading_agent.models.orders import OrderIntent, OrderResponse
 from trading_agent.models.portfolio import AccountSnapshot, Position
 from trading_agent.risk.manager import RiskManager
+from trading_agent.strategies import get_registered_strategies
 from trading_agent.strategies.base import StrategyContext
-from trading_agent.strategies.registry import get_registered_strategies
 
 logger = logging.getLogger(__name__)
 

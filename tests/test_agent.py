@@ -13,6 +13,12 @@ from trading_agent.models.orders import (
     OrderType,
 )
 from trading_agent.risk.manager import RiskManager
+from trading_agent.strategies.registry import get_registered_strategies
+
+
+def test_orchestrator_import_registers_default_strategies():
+    names = {strategy.name for strategy in get_registered_strategies()}
+    assert "rebalance" in names
 
 
 def test_risk_rejects_over_notional():
