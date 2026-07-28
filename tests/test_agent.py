@@ -31,6 +31,24 @@ def test_risk_rejects_over_notional():
     assert "notional" in decision.reason.lower()
 
 
+def test_risk_rejects_limit_notional_without_mark_price():
+    settings = Settings(max_order_notional_usd=1000, trading_mode="live")
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        quantity=100,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+
+    decision = risk.evaluate(intent, account=None, positions=[], mark_price=None)
+
+    assert not decision.approved
+    assert "notional" in decision.reason.lower()
+
+
 def test_option_intent_display_symbol():
     intent = OrderIntent(
         symbol="AAPL",

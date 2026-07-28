@@ -62,7 +62,7 @@ class RiskManager:
                 return RiskDecision(False, "Max open positions reached")
 
         notional = intent.estimated_notional(mark_price)
-        if mark_price and notional > self.settings.max_order_notional_usd:
+        if notional > self.settings.max_order_notional_usd:
             return RiskDecision(
                 False,
                 f"Order notional ${notional:,.2f} exceeds max ${self.settings.max_order_notional_usd:,.2f}",
