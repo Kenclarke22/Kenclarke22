@@ -12,6 +12,7 @@ from trading_agent.models.orders import (
     OrderSide,
     OrderType,
 )
+from trading_agent.models.portfolio import Position
 from trading_agent.risk.manager import RiskManager
 
 
@@ -48,6 +49,75 @@ def test_option_intent_display_symbol():
     )
     assert "AAPL" in intent.display_symbol
     assert "200C" in intent.display_symbol
+
+
+def test_risk_matches_occ_option_position_for_position_notional_cap():
+    settings = Settings(
+        max_order_notional_usd=10_000,
+        max_position_notional_usd=6_000,
+        trading_mode="live",
+    )
+    risk = RiskManager(settings=settings)
+    option_details = OptionDetails(
+        underlying="AAPL",
+        expiry=date(2026, 6, 20),
+        strike=200,
+        right=OptionRight.CALL,
+    )
+    existing_position = Position(
+        symbol="AAPL260620C00200000",
+        asset_class=AssetClass.OPTION,
+        quantity=1,
+        market_value=5_000,
+    )
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.OPTION,
+        side=OrderSide.BUY,
+        quantity=1,
+        order_type=OrderType.LIMIT,
+        limit_price=20,
+        option_details=option_details,
+    )
+
+    decision = risk.evaluate(intent, account=None, positions=[existing_position], mark_price=20)
+
+    assert not decision.approved
+    assert "position notional" in decision.reason.lower()
+
+
+def test_risk_treats_option_on_held_underlying_as_new_open_position():
+    settings = Settings(
+        max_order_notional_usd=10_000,
+        max_open_positions=1,
+        trading_mode="live",
+    )
+    risk = RiskManager(settings=settings)
+    stock_position = Position(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        quantity=10,
+        market_value=1_900,
+    )
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.OPTION,
+        side=OrderSide.BUY,
+        quantity=1,
+        order_type=OrderType.LIMIT,
+        limit_price=1,
+        option_details=OptionDetails(
+            underlying="AAPL",
+            expiry=date(2026, 6, 20),
+            strike=200,
+            right=OptionRight.CALL,
+        ),
+    )
+
+    decision = risk.evaluate(intent, account=None, positions=[stock_position], mark_price=1)
+
+    assert not decision.approved
+    assert "max open positions" in decision.reason.lower()
 
 
 def test_master_agent_cycle_with_mock_server():

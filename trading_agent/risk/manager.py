@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
 from trading_agent.config import Settings, get_settings
-from trading_agent.models.orders import OrderIntent
+from trading_agent.models.orders import AssetClass, OptionDetails, OptionRight, OrderIntent
 from trading_agent.models.portfolio import AccountSnapshot, Position
+
+_OCC_OPTION_SYMBOL = re.compile(r"^([A-Z.]+)(\d{6})([CP])(\d{1,8})$")
 
 
 @dataclass
@@ -55,10 +58,11 @@ class RiskManager:
         if self._orders_today >= self.settings.max_daily_orders:
             return RiskDecision(False, "Daily order limit reached")
 
-        if len(positions) >= self.settings.max_open_positions and intent.side.value == "buy":
-            open_symbols = {p.symbol for p in positions if abs(p.quantity) > 0}
-            is_new = intent.symbol not in open_symbols
-            if is_new:
+        if intent.side.value == "buy":
+            open_positions = {_position_key(p) for p in positions if abs(p.quantity) > 0}
+            is_new = _intent_key(intent) not in open_positions
+            at_position_limit = len(open_positions) >= self.settings.max_open_positions
+            if at_position_limit and is_new:
                 return RiskDecision(False, "Max open positions reached")
 
         notional = intent.estimated_notional(mark_price)
@@ -75,8 +79,9 @@ class RiskManager:
                     f"Insufficient buying power (${account.buying_power:,.2f}) for notional ${notional:,.2f}",
                 )
 
+        intent_position_key = _intent_key(intent)
         for position in positions:
-            if position.symbol != intent.symbol:
+            if _position_key(position) != intent_position_key:
                 continue
             current_value = abs(position.market_value or 0)
             projected = current_value + notional
@@ -87,3 +92,46 @@ class RiskManager:
                 )
 
         return RiskDecision(True, "Approved")
+
+
+def _intent_key(intent: OrderIntent) -> tuple[object, ...]:
+    if intent.asset_class == AssetClass.OPTION and intent.option_details is not None:
+        return ("option", *_option_details_key(intent.option_details))
+    return (intent.asset_class.value, intent.symbol)
+
+
+def _position_key(position: Position) -> tuple[object, ...]:
+    if position.asset_class == AssetClass.OPTION:
+        details = position.option_details or _parse_occ_option_symbol(position.symbol)
+        if details is not None:
+            return ("option", *_option_details_key(details))
+    return (position.asset_class.value, position.symbol)
+
+
+def _option_details_key(details: OptionDetails) -> tuple[object, ...]:
+    return (
+        details.underlying,
+        details.expiry,
+        float(details.strike),
+        details.right.value,
+    )
+
+
+def _parse_occ_option_symbol(symbol: str) -> OptionDetails | None:
+    match = _OCC_OPTION_SYMBOL.match(symbol.upper().replace(" ", ""))
+    if match is None:
+        return None
+
+    underlying, expiry_raw, right_raw, strike_raw = match.groups()
+    try:
+        expiry = date(2000 + int(expiry_raw[:2]), int(expiry_raw[2:4]), int(expiry_raw[4:]))
+        strike = int(strike_raw) / 1000 if len(strike_raw) == 8 else float(strike_raw)
+    except ValueError:
+        return None
+
+    return OptionDetails(
+        underlying=underlying,
+        expiry=expiry,
+        strike=strike,
+        right=OptionRight.CALL if right_raw == "C" else OptionRight.PUT,
+    )
