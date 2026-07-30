@@ -12,7 +12,10 @@ from trading_agent.models.orders import (
     OrderSide,
     OrderType,
 )
+from trading_agent.models.portfolio import AccountSnapshot, Position
 from trading_agent.risk.manager import RiskManager
+from trading_agent.strategies.base import StrategyContext
+from trading_agent.strategies.rebalance import RebalanceStrategy
 
 
 def test_risk_rejects_over_notional():
@@ -48,6 +51,72 @@ def test_option_intent_display_symbol():
     )
     assert "AAPL" in intent.display_symbol
     assert "200C" in intent.display_symbol
+
+
+def test_rebalance_covers_short_stock_when_target_flat():
+    ctx = StrategyContext(
+        account=AccountSnapshot(equity=100_000),
+        positions=[
+            Position(
+                symbol="AAPL",
+                asset_class=AssetClass.STOCK,
+                quantity=-100,
+                market_value=19_000,
+            )
+        ],
+        market_quotes={"AAPL": 190.0},
+        metadata={"target_weights": {"AAPL": 0.0}, "rebalance_threshold": 0.001},
+    )
+
+    intents = RebalanceStrategy().generate_intents(ctx)
+
+    assert len(intents) == 1
+    assert intents[0].side == OrderSide.BUY
+    assert intents[0].quantity == 100
+
+
+def test_rebalance_buys_enough_to_move_short_stock_to_long_target():
+    ctx = StrategyContext(
+        account=AccountSnapshot(equity=100_000),
+        positions=[
+            Position(
+                symbol="AAPL",
+                asset_class=AssetClass.STOCK,
+                quantity=-100,
+                market_value=19_000,
+            )
+        ],
+        market_quotes={"AAPL": 190.0},
+        metadata={"target_weights": {"AAPL": 0.19}, "rebalance_threshold": 0.001},
+    )
+
+    intents = RebalanceStrategy().generate_intents(ctx)
+
+    assert len(intents) == 1
+    assert intents[0].side == OrderSide.BUY
+    assert intents[0].quantity == 200
+
+
+def test_rebalance_sells_long_stock_when_target_flat():
+    ctx = StrategyContext(
+        account=AccountSnapshot(equity=100_000),
+        positions=[
+            Position(
+                symbol="AAPL",
+                asset_class=AssetClass.STOCK,
+                quantity=100,
+                market_value=19_000,
+            )
+        ],
+        market_quotes={"AAPL": 190.0},
+        metadata={"target_weights": {"AAPL": 0.0}, "rebalance_threshold": 0.001},
+    )
+
+    intents = RebalanceStrategy().generate_intents(ctx)
+
+    assert len(intents) == 1
+    assert intents[0].side == OrderSide.SELL
+    assert intents[0].quantity == 100
 
 
 def test_master_agent_cycle_with_mock_server():

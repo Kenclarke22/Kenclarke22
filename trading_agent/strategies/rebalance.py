@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from trading_agent.models.orders import AssetClass, OrderIntent, OrderSide, OrderType
+from trading_agent.models.portfolio import Position
 from trading_agent.strategies.base import Strategy, StrategyContext
 
 
@@ -34,7 +35,7 @@ class RebalanceStrategy(Strategy):
 
             target_value = equity * target_weight
             current = position_map.get(symbol)
-            current_value = current.market_value if current and current.market_value else 0.0
+            current_value = _signed_stock_market_value(current)
             drift = abs(target_value - current_value) / equity
 
             if drift < threshold:
@@ -60,3 +61,18 @@ class RebalanceStrategy(Strategy):
             )
 
         return intents
+
+
+def _signed_stock_market_value(position: Position | None) -> float:
+    if position is None:
+        return 0.0
+
+    market_value = position.market_value
+    if not market_value:
+        return 0.0
+
+    if position.quantity < 0:
+        return -abs(market_value)
+    if position.quantity > 0:
+        return abs(market_value)
+    return 0.0
