@@ -12,6 +12,7 @@ from trading_agent.models.orders import (
     OrderSide,
     OrderType,
 )
+from trading_agent.models.portfolio import Position
 from trading_agent.risk.manager import RiskManager
 
 
@@ -48,6 +49,57 @@ def test_option_intent_display_symbol():
     )
     assert "AAPL" in intent.display_symbol
     assert "200C" in intent.display_symbol
+
+
+def test_risk_rejects_new_short_when_open_position_limit_reached():
+    settings = Settings(max_open_positions=1, max_order_notional_usd=50_000, trading_mode="live")
+    risk = RiskManager(settings=settings)
+    positions = [
+        Position(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            quantity=10,
+            market_value=1900.0,
+        )
+    ]
+    intent = OrderIntent(
+        symbol="MSFT",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.SELL,
+        quantity=10,
+        order_type=OrderType.LIMIT,
+        limit_price=420.0,
+    )
+
+    decision = risk.evaluate(intent, account=None, positions=positions, mark_price=420.0)
+
+    assert not decision.approved
+    assert "max open positions" in decision.reason.lower()
+
+
+def test_risk_allows_selling_existing_position_at_open_position_limit():
+    settings = Settings(max_open_positions=1, max_order_notional_usd=50_000, trading_mode="live")
+    risk = RiskManager(settings=settings)
+    positions = [
+        Position(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            quantity=10,
+            market_value=1900.0,
+        )
+    ]
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.SELL,
+        quantity=1,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+
+    decision = risk.evaluate(intent, account=None, positions=positions, mark_price=190.0)
+
+    assert decision.approved
 
 
 def test_master_agent_cycle_with_mock_server():

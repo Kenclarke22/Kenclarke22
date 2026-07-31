@@ -55,11 +55,9 @@ class RiskManager:
         if self._orders_today >= self.settings.max_daily_orders:
             return RiskDecision(False, "Daily order limit reached")
 
-        if len(positions) >= self.settings.max_open_positions and intent.side.value == "buy":
-            open_symbols = {p.symbol for p in positions if abs(p.quantity) > 0}
-            is_new = intent.symbol not in open_symbols
-            if is_new:
-                return RiskDecision(False, "Max open positions reached")
+        open_symbols = {p.symbol for p in positions if abs(p.quantity) > 0}
+        if len(open_symbols) >= self.settings.max_open_positions and intent.symbol not in open_symbols:
+            return RiskDecision(False, "Max open positions reached")
 
         notional = intent.estimated_notional(mark_price)
         if mark_price and notional > self.settings.max_order_notional_usd:
