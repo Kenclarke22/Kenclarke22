@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
+
 from trading_agent.models.orders import AssetClass, OrderIntent, OrderSide, OrderType
+from trading_agent.models.portfolio import Position
 from trading_agent.strategies.base import Strategy, StrategyContext
 
 
@@ -16,7 +19,7 @@ class RebalanceStrategy(Strategy):
     name = "rebalance"
 
     def generate_intents(self, ctx: StrategyContext) -> list[OrderIntent]:
-        targets: dict[str, float] = ctx.metadata.get("target_weights", {})
+        targets = self._validated_targets(ctx.metadata.get("target_weights", {}))
         if not targets or ctx.account.equity is None or ctx.account.equity <= 0:
             return []
 
@@ -26,11 +29,13 @@ class RebalanceStrategy(Strategy):
         position_map = {p.symbol: p for p in ctx.positions if p.asset_class == AssetClass.STOCK}
         equity = ctx.account.equity
 
-        for symbol, target_weight in targets.items():
-            symbol = symbol.upper()
+        for symbol in sorted(set(targets) | set(position_map)):
+            target_weight = targets.get(symbol, 0.0)
             mark = ctx.market_quotes.get(symbol)
             if mark is None or mark <= 0:
-                continue
+                mark = self._price_from_position(position_map.get(symbol))
+                if mark is None or mark <= 0:
+                    continue
 
             target_value = equity * target_weight
             current = position_map.get(symbol)
@@ -60,3 +65,25 @@ class RebalanceStrategy(Strategy):
             )
 
         return intents
+
+    def _validated_targets(self, raw_targets: object) -> dict[str, float]:
+        if not isinstance(raw_targets, dict):
+            raise ValueError("target_weights must be a mapping of symbol to weight")
+
+        targets: dict[str, float] = {}
+        for raw_symbol, raw_weight in raw_targets.items():
+            symbol = str(raw_symbol).upper()
+            weight = float(raw_weight)
+            if not math.isfinite(weight) or weight < 0:
+                raise ValueError(f"Invalid target weight for {symbol}: {raw_weight}")
+            targets[symbol] = weight
+
+        total_weight = sum(targets.values())
+        if total_weight > 1.0 + 1e-9:
+            raise ValueError(f"Target weights must sum to 100% or less, got {total_weight:.2%}")
+        return targets
+
+    def _price_from_position(self, position: Position | None) -> float | None:
+        if position is None or not position.market_value or not position.quantity:
+            return None
+        return abs(position.market_value / position.quantity)

@@ -12,7 +12,10 @@ from trading_agent.models.orders import (
     OrderSide,
     OrderType,
 )
+from trading_agent.models.portfolio import AccountSnapshot, Position
 from trading_agent.risk.manager import RiskManager
+from trading_agent.strategies.base import StrategyContext
+from trading_agent.strategies.rebalance import RebalanceStrategy
 
 
 def test_risk_rejects_over_notional():
@@ -48,6 +51,44 @@ def test_option_intent_display_symbol():
     )
     assert "AAPL" in intent.display_symbol
     assert "200C" in intent.display_symbol
+
+
+def test_rebalance_liquidates_positions_omitted_from_targets():
+    strategy = RebalanceStrategy()
+    ctx = StrategyContext(
+        account=AccountSnapshot(equity=100_000, buying_power=100_000),
+        positions=[
+            Position(
+                symbol="TSLA",
+                asset_class=AssetClass.STOCK,
+                quantity=100,
+                market_value=100_000,
+            )
+        ],
+        market_quotes={"AAPL": 100.0, "TSLA": 1_000.0},
+        metadata={"target_weights": {"AAPL": 1.0}, "rebalance_threshold": 0.001},
+    )
+
+    intents = strategy.generate_intents(ctx)
+
+    orders_by_symbol = {intent.symbol: intent for intent in intents}
+    assert orders_by_symbol["AAPL"].side == OrderSide.BUY
+    assert orders_by_symbol["AAPL"].quantity == 1_000
+    assert orders_by_symbol["TSLA"].side == OrderSide.SELL
+    assert orders_by_symbol["TSLA"].quantity == 100
+
+
+def test_rebalance_rejects_leveraged_target_weights():
+    strategy = RebalanceStrategy()
+    ctx = StrategyContext(
+        account=AccountSnapshot(equity=100_000, buying_power=100_000),
+        positions=[],
+        market_quotes={"AAPL": 100.0, "MSFT": 100.0},
+        metadata={"target_weights": {"AAPL": 1.0, "MSFT": 0.5}},
+    )
+
+    with pytest.raises(ValueError, match="Target weights"):
+        strategy.generate_intents(ctx)
 
 
 def test_master_agent_cycle_with_mock_server():
