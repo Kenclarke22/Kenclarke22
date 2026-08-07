@@ -12,7 +12,10 @@ from trading_agent.models.orders import (
     OrderSide,
     OrderType,
 )
+from trading_agent.models.portfolio import AccountSnapshot, Position
 from trading_agent.risk.manager import RiskManager
+from trading_agent.strategies.base import StrategyContext
+from trading_agent.strategies.rebalance import RebalanceStrategy
 
 
 def test_risk_rejects_over_notional():
@@ -48,6 +51,74 @@ def test_option_intent_display_symbol():
     )
     assert "AAPL" in intent.display_symbol
     assert "200C" in intent.display_symbol
+
+
+def test_rebalance_uses_quote_value_and_does_not_oversell_stale_position_value():
+    strategy = RebalanceStrategy()
+    ctx = StrategyContext(
+        account=AccountSnapshot(equity=100_000, buying_power=100_000),
+        positions=[
+            Position(
+                symbol="AAPL",
+                asset_class=AssetClass.STOCK,
+                quantity=100,
+                market_value=25_000,
+            )
+        ],
+        market_quotes={"AAPL": 190.0},
+        metadata={"target_weights": {"AAPL": 0.05}, "rebalance_threshold": 0.001},
+    )
+
+    intents = strategy.generate_intents(ctx)
+
+    assert len(intents) == 1
+    assert intents[0].side == OrderSide.SELL
+    assert intents[0].quantity == pytest.approx(73.6842)
+    assert intents[0].quantity <= 100
+
+
+def test_risk_rejects_sell_without_matching_long_position():
+    settings = Settings(max_order_notional_usd=500_000, trading_mode="live")
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.SELL,
+        quantity=1000,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+
+    decision = risk.evaluate(intent, account=None, positions=[], mark_price=190.0)
+
+    assert not decision.approved
+    assert "long position" in decision.reason
+
+
+def test_risk_rejects_sell_quantity_above_holdings():
+    settings = Settings(max_order_notional_usd=500_000, trading_mode="live")
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.SELL,
+        quantity=11,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+    positions = [
+        Position(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            quantity=10,
+            market_value=1_900,
+        )
+    ]
+
+    decision = risk.evaluate(intent, account=None, positions=positions, mark_price=190.0)
+
+    assert not decision.approved
+    assert "exceeds holdings" in decision.reason
 
 
 def test_master_agent_cycle_with_mock_server():

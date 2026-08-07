@@ -34,7 +34,7 @@ class RebalanceStrategy(Strategy):
 
             target_value = equity * target_weight
             current = position_map.get(symbol)
-            current_value = current.market_value if current and current.market_value else 0.0
+            current_value = current.quantity * mark if current else 0.0
             drift = abs(target_value - current_value) / equity
 
             if drift < threshold:
@@ -42,10 +42,12 @@ class RebalanceStrategy(Strategy):
 
             delta_value = target_value - current_value
             qty = abs(delta_value / mark)
+            side = OrderSide.BUY if delta_value > 0 else OrderSide.SELL
+            if side == OrderSide.SELL and current:
+                qty = min(qty, max(current.quantity, 0.0))
             if qty < 1:
                 continue
 
-            side = OrderSide.BUY if delta_value > 0 else OrderSide.SELL
             intents.append(
                 OrderIntent(
                     symbol=symbol,

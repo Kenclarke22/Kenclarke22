@@ -75,9 +75,18 @@ class RiskManager:
                     f"Insufficient buying power (${account.buying_power:,.2f}) for notional ${notional:,.2f}",
                 )
 
-        for position in positions:
-            if position.symbol != intent.symbol:
-                continue
+        matching_positions = [p for p in positions if self._matches_intent(p, intent)]
+        if intent.side.value == "sell":
+            held_quantity = sum(p.quantity for p in matching_positions)
+            if held_quantity <= 0:
+                return RiskDecision(False, "Cannot sell without a long position")
+            if intent.quantity > held_quantity:
+                return RiskDecision(
+                    False,
+                    f"Sell quantity {intent.quantity:g} exceeds holdings {held_quantity:g}",
+                )
+
+        for position in matching_positions:
             current_value = abs(position.market_value or 0)
             projected = current_value + notional
             if projected > self.settings.max_position_notional_usd:
@@ -87,3 +96,10 @@ class RiskManager:
                 )
 
         return RiskDecision(True, "Approved")
+
+    def _matches_intent(self, position: Position, intent: OrderIntent) -> bool:
+        if position.asset_class != intent.asset_class or position.symbol != intent.symbol:
+            return False
+        if intent.option_details is not None:
+            return position.option_details == intent.option_details
+        return True
