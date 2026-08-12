@@ -78,7 +78,7 @@ class RiskManager:
         for position in positions:
             if position.symbol != intent.symbol:
                 continue
-            current_value = abs(position.market_value or 0)
+            current_value = self._current_position_value(position, intent, mark_price)
             projected = current_value + notional
             if projected > self.settings.max_position_notional_usd:
                 return RiskDecision(
@@ -87,3 +87,14 @@ class RiskManager:
                 )
 
         return RiskDecision(True, "Approved")
+
+    def _current_position_value(
+        self,
+        position: Position,
+        intent: OrderIntent,
+        mark_price: float | None,
+    ) -> float:
+        if mark_price and mark_price > 0 and position.asset_class == intent.asset_class:
+            multiplier = 100 if position.asset_class.value == "option" else 1
+            return abs(position.quantity) * mark_price * multiplier
+        return abs(position.market_value or 0)

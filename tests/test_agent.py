@@ -12,6 +12,7 @@ from trading_agent.models.orders import (
     OrderSide,
     OrderType,
 )
+from trading_agent.models.portfolio import Position
 from trading_agent.risk.manager import RiskManager
 
 
@@ -29,6 +30,36 @@ def test_risk_rejects_over_notional():
     decision = risk.evaluate(intent, account=None, positions=[], mark_price=190.0)
     assert not decision.approved
     assert "notional" in decision.reason.lower()
+
+
+def test_risk_values_existing_position_with_fresh_mark_price():
+    settings = Settings(
+        max_order_notional_usd=100_000,
+        max_position_notional_usd=25_000,
+        trading_mode="live",
+    )
+    risk = RiskManager(settings=settings)
+    intent = OrderIntent(
+        symbol="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        quantity=80,
+        order_type=OrderType.LIMIT,
+        limit_price=190.0,
+    )
+    positions = [
+        Position(
+            symbol="AAPL",
+            asset_class=AssetClass.STOCK,
+            quantity=100,
+            market_value=5_000,
+        )
+    ]
+
+    decision = risk.evaluate(intent, account=None, positions=positions, mark_price=190.0)
+
+    assert not decision.approved
+    assert "Position notional" in decision.reason
 
 
 def test_option_intent_display_symbol():
