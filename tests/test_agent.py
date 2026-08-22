@@ -1,7 +1,9 @@
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
+import trading_agent.main as main_module
 from trading_agent.agent.orchestrator import MasterTradingAgent
 from trading_agent.config import Settings
 from trading_agent.models.orders import (
@@ -48,6 +50,54 @@ def test_option_intent_display_symbol():
     )
     assert "AAPL" in intent.display_symbol
     assert "200C" in intent.display_symbol
+
+
+def test_run_loop_reloads_metadata_each_cycle(monkeypatch):
+    settings = Settings(agent_cycle_seconds=0)
+    loaded_metadata = [{"cycle": 1}, {"cycle": 2}]
+    seen_metadata = []
+    sleep_calls = 0
+
+    class _FakeAgent:
+        def __init__(self, *, settings):
+            self.settings = settings
+            self.closed = False
+
+        def run_cycle(self, *, strategy_metadata=None):
+            seen_metadata.append(strategy_metadata)
+            return SimpleNamespace(
+                started_at=SimpleNamespace(isoformat=lambda: "now"),
+                proposed=[],
+                approved=[],
+                submitted=[],
+                rejected=[],
+                errors=[],
+            )
+
+        def close(self):
+            self.closed = True
+
+    def _load_metadata(path):
+        assert path == "quotes.json"
+        return loaded_metadata[len(seen_metadata)]
+
+    def _sleep(seconds):
+        nonlocal sleep_calls
+        assert seconds == 0
+        sleep_calls += 1
+        if sleep_calls == 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(main_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(main_module, "MasterTradingAgent", _FakeAgent)
+    monkeypatch.setattr(main_module, "_load_metadata", _load_metadata)
+    monkeypatch.setattr(main_module, "_print_cycle_result", lambda result: None)
+    monkeypatch.setattr(main_module.time, "sleep", _sleep)
+
+    exit_code = main_module.cmd_run_loop(SimpleNamespace(metadata="quotes.json"))
+
+    assert exit_code == 0
+    assert seen_metadata == loaded_metadata
 
 
 def test_master_agent_cycle_with_mock_server():

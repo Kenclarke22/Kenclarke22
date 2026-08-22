@@ -65,10 +65,10 @@ def cmd_run_once(args: argparse.Namespace) -> int:
 
 def cmd_run_loop(args: argparse.Namespace) -> int:
     settings = get_settings()
-    metadata = _load_metadata(args.metadata)
     agent = MasterTradingAgent(settings=settings)
     try:
         while True:
+            metadata = _load_metadata(args.metadata)
             result = agent.run_cycle(strategy_metadata=metadata)
             _print_cycle_result(result)
             time.sleep(settings.agent_cycle_seconds)
