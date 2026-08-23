@@ -68,7 +68,12 @@ def cmd_run_loop(args: argparse.Namespace) -> int:
     agent = MasterTradingAgent(settings=settings)
     try:
         while True:
-            metadata = _load_metadata(args.metadata)
+            try:
+                metadata = _load_metadata(args.metadata)
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                console.print(f"[red]Failed to load metadata: {exc}[/red]")
+                time.sleep(settings.agent_cycle_seconds)
+                continue
             result = agent.run_cycle(strategy_metadata=metadata)
             _print_cycle_result(result)
             time.sleep(settings.agent_cycle_seconds)
@@ -131,7 +136,10 @@ def _load_metadata(path: str | None) -> dict[str, Any]:
     if not path:
         return {}
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        metadata = json.load(f)
+    if not isinstance(metadata, dict):
+        raise ValueError("metadata JSON must be an object")
+    return metadata
 
 
 def _print_cycle_result(result) -> None:

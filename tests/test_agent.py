@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from types import SimpleNamespace
 
@@ -98,6 +99,69 @@ def test_run_loop_reloads_metadata_each_cycle(monkeypatch):
 
     assert exit_code == 0
     assert seen_metadata == loaded_metadata
+
+
+def test_run_loop_skips_cycle_when_metadata_reload_fails(monkeypatch):
+    settings = Settings(agent_cycle_seconds=0)
+    seen_metadata = []
+    sleep_calls = 0
+
+    class _FakeAgent:
+        def __init__(self, *, settings):
+            self.settings = settings
+
+        def run_cycle(self, *, strategy_metadata=None):
+            seen_metadata.append(strategy_metadata)
+            return SimpleNamespace(
+                started_at=SimpleNamespace(isoformat=lambda: "now"),
+                proposed=[],
+                approved=[],
+                submitted=[],
+                rejected=[],
+                errors=[],
+            )
+
+        def close(self):
+            return None
+
+    reloads = [
+        json.JSONDecodeError("partial metadata", "{", 0),
+        {"cycle": 1},
+    ]
+
+    def _load_metadata(path):
+        assert path == "quotes.json"
+        value = reloads.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    def _sleep(seconds):
+        nonlocal sleep_calls
+        assert seconds == 0
+        sleep_calls += 1
+        if sleep_calls == 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(main_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(main_module, "MasterTradingAgent", _FakeAgent)
+    monkeypatch.setattr(main_module, "_load_metadata", _load_metadata)
+    monkeypatch.setattr(main_module, "_print_cycle_result", lambda result: None)
+    monkeypatch.setattr(main_module.console, "print", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main_module.time, "sleep", _sleep)
+
+    exit_code = main_module.cmd_run_loop(SimpleNamespace(metadata="quotes.json"))
+
+    assert exit_code == 0
+    assert seen_metadata == [{"cycle": 1}]
+
+
+def test_load_metadata_requires_json_object(tmp_path):
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text("[1, 2, 3]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metadata JSON must be an object"):
+        main_module._load_metadata(str(metadata_path))
 
 
 def test_master_agent_cycle_with_mock_server():
